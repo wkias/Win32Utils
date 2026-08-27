@@ -1,14 +1,11 @@
-/*
-zig cc DDCBrightness.c -o DDCBrightness.exe -municode "-Wl,--subsystem,windows" -luser32 -lshell32 -lgdi32 -lcomctl32 -ldxva2 -ladvapi32
-*/
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <shellapi.h>
 #include <commctrl.h>
 #include <physicalmonitorenumerationapi.h>
 #include <highlevelmonitorconfigurationapi.h>
+#include <lowlevelmonitorconfigurationapi.h>
 #include <stdio.h>
-#include <tchar.h>
 
 #pragma comment(lib, "user32.lib")
 #pragma comment(lib, "shell32.lib")
@@ -17,6 +14,9 @@ zig cc DDCBrightness.c -o DDCBrightness.exe -municode "-Wl,--subsystem,windows" 
 #pragma comment(lib, "dxva2.lib")
 #pragma comment(lib, "advapi32.lib")
 
+// 启用 Windows 原生控件视觉样式 (ComCtl32 v6)
+#pragma comment(linker, "\"/manifestdependency:type='win32' name='Microsoft.Windows.Common-Controls' version='6.0.0.0' processorArchitecture='*' publicKeyToken='6595b64144ccf1df' language='*'\"")
+
 #define WM_TRAYICON (WM_USER + 1)
 #define IDI_TRAYICON 101
 #define ID_MENU_AUTOSTART 1001
@@ -24,36 +24,28 @@ zig cc DDCBrightness.c -o DDCBrightness.exe -municode "-Wl,--subsystem,windows" 
 
 #define REG_RUN_KEY L"Software\\Microsoft\\Windows\\CurrentVersion\\Run"
 #define APP_NAME    L"DDCBrightnessTray"
-
 #define MAX_MONITORS 8
-#define COLOR_BG RGB(25, 25, 25)
-#define COLOR_TEXT RGB(240, 240, 240)
-#define COLOR_SPLIT RGB(50, 50, 50)
 
 typedef struct {
     HANDLE hPhysicalMonitor;
     WCHAR description[128];
-    DWORD minBrightness;
-    DWORD maxBrightness;
-    DWORD curBrightness;
-    BOOL  isSupported;
-    HWND  hSlider;
-    HWND  hValLabel;
+    DWORD minBrightness, curBrightness, maxBrightness;
+    BOOL isSupported;
+    HWND hSlider, hValLabel;
 } MonitorInfo;
 
 MonitorInfo g_Monitors[MAX_MONITORS];
 int g_MonitorCount = 0;
 NOTIFYICONDATAW g_Nid = {0};
 HWND g_hPopupWnd = NULL;
-HFONT g_hFontTitle = NULL;
-HFONT g_hFontIcon = NULL;
+HFONT g_hFont = NULL;
 
-// --- 注册表：开机自启动控制 ---
+// --- 开机自启动 ---
 BOOL IsAutoStartEnabled() {
     HKEY hKey;
     if (RegOpenKeyExW(HKEY_CURRENT_USER, REG_RUN_KEY, 0, KEY_READ, &hKey) == ERROR_SUCCESS) {
-        DWORD type, size = 0;
-        LONG res = RegQueryValueExW(hKey, APP_NAME, NULL, &type, NULL, &size);
+        DWORD size = 0;
+        LONG res = RegQueryValueExW(hKey, APP_NAME, NULL, NULL, NULL, &size);
         RegCloseKey(hKey);
         return (res == ERROR_SUCCESS);
     }
@@ -74,7 +66,7 @@ void ToggleAutoStart() {
     }
 }
 
-// --- DDC/CI 显示器枚举与控制 ---
+// --- 显示器枚举 ---
 BOOL CALLBACK MonitorEnumProc(HMONITOR hMonitor, HDC hdcMonitor, LPRECT lprcMonitor, LPARAM dwData) {
     DWORD count = 0;
     if (GetNumberOfPhysicalMonitorsFromHMONITOR(hMonitor, &count) && count > 0) {
@@ -91,7 +83,6 @@ BOOL CALLBACK MonitorEnumProc(HMONITOR hMonitor, HDC hdcMonitor, LPRECT lprcMoni
                     g_Monitors[g_MonitorCount].maxBrightness = maxB;
                     g_Monitors[g_MonitorCount].isSupported = TRUE;
                 } else {
-                    // DDC/CI 读取失败时显示 -1
                     g_Monitors[g_MonitorCount].minBrightness = 0;
                     g_Monitors[g_MonitorCount].curBrightness = 0;
                     g_Monitors[g_MonitorCount].maxBrightness = 100;
@@ -107,17 +98,14 @@ BOOL CALLBACK MonitorEnumProc(HMONITOR hMonitor, HDC hdcMonitor, LPRECT lprcMoni
 
 void RefreshMonitors() {
     for (int i = 0; i < g_MonitorCount; i++) {
-        if (g_Monitors[i].hPhysicalMonitor) {
-            DestroyPhysicalMonitor(g_Monitors[i].hPhysicalMonitor);
-        }
+        if (g_Monitors[i].hPhysicalMonitor) DestroyPhysicalMonitor(g_Monitors[i].hPhysicalMonitor);
     }
     g_MonitorCount = 0;
     EnumDisplayMonitors(NULL, NULL, MonitorEnumProc, 0);
 }
 
-// --- 创建 UI 控件 ---
+// --- 构建原生 UI ---
 void RebuildUIControls(HWND hwnd) {
-    // 清除旧控件
     HWND hChild = GetWindow(hwnd, GW_CHILD);
     while (hChild) {
         HWND hNext = GetWindow(hChild, GW_HWNDNEXT);
@@ -131,62 +119,48 @@ void RebuildUIControls(HWND hwnd) {
     for (int i = 0; i < g_MonitorCount; i++) {
         // 显示器名称
         HWND hTitle = CreateWindowW(L"STATIC", g_Monitors[i].description,
-            WS_CHILD | WS_VISIBLE | SS_LEFT,
-            16, y, 300, 20, hwnd, NULL, NULL, NULL);
-        SendMessage(hTitle, WM_SETFONT, (WPARAM)g_hFontTitle, TRUE);
+            WS_CHILD | WS_VISIBLE | SS_LEFT, 15, y, 220, 20, hwnd, NULL, NULL, NULL);
+        SendMessage(hTitle, WM_SETFONT, (WPARAM)g_hFont, TRUE);
 
-        // 太阳图标 (Unicode: ☼)
-        HWND hIcon = CreateWindowW(L"STATIC", L"\x263C",
-            WS_CHILD | WS_VISIBLE | SS_CENTER,
-            16, y + 26, 24, 24, hwnd, NULL, NULL, NULL);
-        SendMessage(hIcon, WM_SETFONT, (WPARAM)g_hFontIcon, TRUE);
+        // 原生息屏按钮
+        HWND hOffBtn = CreateWindowW(L"BUTTON", L"息屏",
+            WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 280, y - 2, 50, 24, hwnd, (HMENU)(INT_PTR)(3000 + i), NULL, NULL);
+        SendMessage(hOffBtn, WM_SETFONT, (WPARAM)g_hFont, TRUE);
 
-        // 亮度滑块
+        // 亮度滑块 (Win10/11 原生样式)
         HWND hSlider = CreateWindowW(TRACKBAR_CLASSW, L"",
-            WS_CHILD | WS_VISIBLE | TBS_HORZ | TBS_NOTICKS,
-            44, y + 26, 250, 24, hwnd, (HMENU)(INT_PTR)(2000 + i), NULL, NULL);
-        
+            WS_CHILD | WS_VISIBLE | TBS_HORZ | TBS_NOTICKS, 15, y + 26, 275, 24, hwnd, (HMENU)(INT_PTR)(2000 + i), NULL, NULL);
         SendMessage(hSlider, TBM_SETRANGE, TRUE, MAKELONG(g_Monitors[i].minBrightness, g_Monitors[i].maxBrightness));
         SendMessage(hSlider, TBM_SETPOS, TRUE, g_Monitors[i].curBrightness);
         EnableWindow(hSlider, g_Monitors[i].isSupported);
         g_Monitors[i].hSlider = hSlider;
 
-        // 数值显示 (如 -1 或 0~100)
+        // 数值文本
         WCHAR valStr[16];
-        if (g_Monitors[i].isSupported) {
-            swprintf_s(valStr, 16, L"%d", g_Monitors[i].curBrightness);
-        } else {
-            wcscpy_s(valStr, 16, L"-1");
-        }
-
+        swprintf_s(valStr, 16, g_Monitors[i].isSupported ? L"%d" : L"-1", g_Monitors[i].curBrightness);
         HWND hVal = CreateWindowW(L"STATIC", valStr,
-            WS_CHILD | WS_VISIBLE | SS_RIGHT,
-            302, y + 28, 36, 20, hwnd, NULL, NULL, NULL);
-        SendMessage(hVal, WM_SETFONT, (WPARAM)g_hFontTitle, TRUE);
+            WS_CHILD | WS_VISIBLE | SS_RIGHT, 295, y + 28, 35, 20, hwnd, NULL, NULL, NULL);
+        SendMessage(hVal, WM_SETFONT, (WPARAM)g_hFont, TRUE);
         g_Monitors[i].hValLabel = hVal;
 
-        y += 75;
+        y += 65;
     }
 }
 
-// --- 计算托盘弹窗位置 ---
 void ShowPopupWindow(HWND hwnd) {
     RebuildUIControls(hwnd);
 
-    int rowHeight = 75;
-    int windowWidth = 360;
-    int windowHeight = g_MonitorCount * rowHeight + 10;
+    int windowWidth = 350;
+    int windowHeight = g_MonitorCount * 65 + 15;
     if (windowHeight < 80) windowHeight = 80;
 
     POINT pt;
     GetCursorPos(&pt);
-
     RECT workArea;
     SystemParametersInfo(SPI_GETWORKAREA, 0, &workArea, 0);
 
     int x = pt.x - windowWidth / 2;
     int y = pt.y - windowHeight - 10;
-
     if (x < workArea.left) x = workArea.left + 5;
     if (x + windowWidth > workArea.right) x = workArea.right - windowWidth - 5;
     if (y < workArea.top) y = pt.y + 10;
@@ -195,26 +169,32 @@ void ShowPopupWindow(HWND hwnd) {
     SetForegroundWindow(hwnd);
 }
 
-// --- 窗口过程 ---
+// --- 窗口消息循环 ---
 LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     switch (msg) {
-    case WM_CREATE: {
-        g_hFontTitle = CreateFontW(16, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+    case WM_CREATE:
+        g_hFont = CreateFontW(14, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
             DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-            CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
-        g_hFontIcon = CreateFontW(20, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
-            DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-            CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI Symbol");
+            CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Microsoft YaHei UI");
+        break;
+
+    case WM_COMMAND: {
+        int id = LOWORD(wParam);
+        if (id >= 3000 && id < 3000 + g_MonitorCount) {
+            int idx = id - 3000;
+            if (g_Monitors[idx].isSupported) {
+                SetVCPFeature(g_Monitors[idx].hPhysicalMonitor, 0xD6, 0x04);
+            }
+            SendMessageTimeoutW(HWND_BROADCAST, WM_SYSCOMMAND, SC_MONITORPOWER, 2, SMTO_ABORTIFHUNG, 100, NULL);
+            ShowWindow(hwnd, SW_HIDE);
+        }
         break;
     }
 
-    case WM_TRAYICON: {
+    case WM_TRAYICON:
         if (lParam == WM_LBUTTONUP) {
-            if (IsWindowVisible(hwnd)) {
-                ShowWindow(hwnd, SW_HIDE);
-            } else {
-                ShowPopupWindow(hwnd);
-            }
+            if (IsWindowVisible(hwnd)) ShowWindow(hwnd, SW_HIDE);
+            else ShowPopupWindow(hwnd);
         } else if (lParam == WM_RBUTTONUP) {
             HMENU hMenu = CreatePopupMenu();
             AppendMenuW(hMenu, MF_STRING | (IsAutoStartEnabled() ? MF_CHECKED : MF_UNCHECKED), ID_MENU_AUTOSTART, L"开机自启动");
@@ -227,14 +207,10 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             int cmd = TrackPopupMenu(hMenu, TPM_RETURNCMD | TPM_NONOTIFY, pt.x, pt.y, 0, hwnd, NULL);
             DestroyMenu(hMenu);
 
-            if (cmd == ID_MENU_AUTOSTART) {
-                ToggleAutoStart();
-            } else if (cmd == ID_MENU_EXIT) {
-                PostQuitMessage(0);
-            }
+            if (cmd == ID_MENU_AUTOSTART) ToggleAutoStart();
+            else if (cmd == ID_MENU_EXIT) PostQuitMessage(0);
         }
         break;
-    }
 
     case WM_HSCROLL: {
         HWND hSlider = (HWND)lParam;
@@ -253,56 +229,18 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         break;
     }
 
-    case WM_CTLCOLORSTATIC: {
-        HDC hdc = (HDC)wParam;
-        SetTextColor(hdc, COLOR_TEXT);
-        SetBkColor(hdc, COLOR_BG);
-        static HBRUSH hbrBg = NULL;
-        if (!hbrBg) hbrBg = CreateSolidBrush(COLOR_BG);
-        return (INT_PTR)hbrBg;
-    }
-
-    case WM_ERASEBKGND: {
-        HDC hdc = (HDC)wParam;
-        RECT rc;
-        GetClientRect(hwnd, &rc);
-        HBRUSH hbr = CreateSolidBrush(COLOR_BG);
-        FillRect(hdc, &rc, hbr);
-        DeleteObject(hbr);
-
-        // 绘制行分割线
-        HPEN hPen = CreatePen(PS_SOLID, 1, COLOR_SPLIT);
-        HPEN hOldPen = (HPEN)SelectObject(hdc, hPen);
-        for (int i = 1; i < g_MonitorCount; i++) {
-            int y = i * 75;
-            MoveToEx(hdc, 0, y, NULL);
-            LineTo(hdc, rc.right, y);
-        }
-        SelectObject(hdc, hOldPen);
-        DeleteObject(hPen);
-        return 1;
-    }
-
-    case WM_ACTIVATE: {
-        // 点击窗口外部时自动隐藏
-        if (LOWORD(wParam) == WA_INACTIVE) {
-            ShowWindow(hwnd, SW_HIDE);
-        }
+    case WM_ACTIVATE:
+        if (LOWORD(wParam) == WA_INACTIVE) ShowWindow(hwnd, SW_HIDE);
         break;
-    }
 
-    case WM_DESTROY: {
+    case WM_DESTROY:
         Shell_NotifyIconW(NIM_DELETE, &g_Nid);
-        if (g_hFontTitle) DeleteObject(g_hFontTitle);
-        if (g_hFontIcon) DeleteObject(g_hFontIcon);
+        if (g_hFont) DeleteObject(g_hFont);
         for (int i = 0; i < g_MonitorCount; i++) {
-            if (g_Monitors[i].hPhysicalMonitor) {
-                DestroyPhysicalMonitor(g_Monitors[i].hPhysicalMonitor);
-            }
+            if (g_Monitors[i].hPhysicalMonitor) DestroyPhysicalMonitor(g_Monitors[i].hPhysicalMonitor);
         }
         PostQuitMessage(0);
         break;
-    }
 
     default:
         return DefWindowProcW(hwnd, msg, wParam, lParam);
@@ -314,25 +252,23 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmdLi
     INITCOMMONCONTROLSEX icex = { sizeof(icex), ICC_BAR_CLASSES };
     InitCommonControlsEx(&icex);
 
-    const WCHAR CLASS_NAME[] = L"DDCBrightnessPopupClass";
+    const WCHAR CLASS_NAME[] = L"DDCBrightnessNativePopup";
     WNDCLASSW wc = {0};
     wc.lpfnWndProc = WndProc;
     wc.hInstance = hInstance;
     wc.lpszClassName = CLASS_NAME;
-    wc.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
+    wc.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1); // 使用系统原生窗口背景
     wc.hCursor = LoadCursor(NULL, IDC_ARROW);
     RegisterClassW(&wc);
 
-    // 创建无边框 Popup 窗口
     g_hPopupWnd = CreateWindowExW(
         WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
         CLASS_NAME, L"Brightness Control",
-        WS_POPUP | WS_BORDER,
-        0, 0, 360, 160,
+        WS_POPUP | WS_DLGFRAME,
+        0, 0, 350, 150,
         NULL, NULL, hInstance, NULL
     );
 
-    // 注册托盘图标
     g_Nid.cbSize = sizeof(NOTIFYICONDATAW);
     g_Nid.hWnd = g_hPopupWnd;
     g_Nid.uID = IDI_TRAYICON;
