@@ -7,8 +7,8 @@
 .global main
 
 .section .rdata
-    szConfig:       .asciz "config\\power_monitor.txt"
-    szLog:          .asciz "log\\power_monitor.log"
+    szConfig:       .asciz "D:\\zig\\config\\power_monitor.txt"
+    szLog:          .asciz "D:\\zig\\log\\power_monitor.log"
     szMsgBalanced:  .asciz " [State Change] Power mode set to: Balanced\r\n"
     szMsgSaver:     .asciz " [State Change] Power mode set to: Power Saver\r\n"
 
