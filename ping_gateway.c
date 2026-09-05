@@ -12,7 +12,7 @@ zig cc -Oz -s ping_gateway.c -o ping_gateway.exe -liphlpapi -lws2_32 '-Wl,--subs
 #include <icmpapi.h>
 
 void write_log(const char *msg) {
-    FILE *f = fopen("ping_log.txt", "a");
+    FILE *f = fopen("log\\ping.log", "a");
     if (f) {
         fputs(msg, f);
         fclose(f);

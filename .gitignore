@@ -1,5 +1,6 @@
 *.exe
 *.log
 *.pdb
+*.txt
 config/*
 log/*
