@@ -1,3 +1,7 @@
+/* 定时ping网关 后台静默
+zig cc -Oz -s ping_gateway.c -o ping_gateway.exe -liphlpapi -lws2_32 '-Wl,--subsystem,windows'
+*/
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -7,7 +11,14 @@
 #include <iphlpapi.h>
 #include <icmpapi.h>
 
-// 自动读取系统的默认网关 IP
+void write_log(const char *msg) {
+    FILE *f = fopen("ping_log.txt", "a");
+    if (f) {
+        fputs(msg, f);
+        fclose(f);
+    }
+}
+
 int get_default_gateway(char *out_ip, size_t size) {
     ULONG bufLen = sizeof(IP_ADAPTER_INFO);
     PIP_ADAPTER_INFO pAdapterInfo = (IP_ADAPTER_INFO *)malloc(bufLen);
@@ -32,7 +43,6 @@ int get_default_gateway(char *out_ip, size_t size) {
     return -1;
 }
 
-// 执行 ICMP Echo 请求
 int ping_ip(const char *ip_str) {
     HANDLE hIcmpFile = IcmpCreateFile();
     if (hIcmpFile == INVALID_HANDLE_VALUE) return -1;
@@ -51,7 +61,7 @@ int ping_ip(const char *ip_str) {
         NULL,
         replyBuffer,
         replySize,
-        2000 // 2秒超时
+        2000
     );
 
     if (dwRetVal != 0) {
@@ -66,26 +76,25 @@ int ping_ip(const char *ip_str) {
     return rtt;
 }
 
-int main(int argc, char *argv[]) {
-    // 兼容 936 代码页：设置当前进程控制台输出编码为 UTF-8 (65001)
-    SetConsoleOutputCP(65001);
+// 强制使用 Windows GUI 入口点
+int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow) {
+    // 强制立即剥离任何潜在挂载的控制台窗口
+    FreeConsole();
 
     char gateway_ip[64] = {0};
 
-    // 优先使用传入参数作为 IP，无参数则自动获取默认网关
-    if (argc > 1) {
-        strncpy(gateway_ip, argv[1], sizeof(gateway_ip) - 1);
-        printf("[*] 目标 IP (指定): %s\n", gateway_ip);
+    if (lpCmdLine && strlen(lpCmdLine) > 0) {
+        strncpy(gateway_ip, lpCmdLine, sizeof(gateway_ip) - 1);
     } else {
-        printf("[*] 正在检测默认网关...\n");
         if (get_default_gateway(gateway_ip, sizeof(gateway_ip)) != 0) {
-            fprintf(stderr, "[!] 未找到可用网关，请手动传入 IP 参数（例如: ping_gateway.exe 192.168.1.1）\n");
+            write_log("[!] 未找到可用网关，退出运行\n");
             return 1;
         }
-        printf("[*] 自动检测到网关 IP: %s\n", gateway_ip);
     }
 
-    printf("[*] 监控已启动，每 60 秒 Ping 一次（按 Ctrl+C 退出）\n\n");
+    char log_buf[256];
+    snprintf(log_buf, sizeof(log_buf), "[*] 静默 Ping 监控启动，目标网关: %s\n", gateway_ip);
+    write_log(log_buf);
 
     while (1) {
         time_t now = time(NULL);
@@ -96,13 +105,13 @@ int main(int argc, char *argv[]) {
         int rtt = ping_ip(gateway_ip);
 
         if (rtt >= 0) {
-            printf("[%s] Ping %s - 成功 | 延迟: %d ms\n", time_str, gateway_ip, rtt);
+            snprintf(log_buf, sizeof(log_buf), "[%s] Ping %s - 成功 | 延迟: %d ms\n", time_str, gateway_ip, rtt);
         } else {
-            printf("[%s] Ping %s - 超时或失败\n", time_str, gateway_ip);
+            snprintf(log_buf, sizeof(log_buf), "[%s] Ping %s - 超时或失败\n", time_str, gateway_ip);
         }
 
-        fflush(stdout);
-        Sleep(60000); // 暂停 60 秒
+        write_log(log_buf);
+        Sleep(60000);
     }
 
     return 0;
