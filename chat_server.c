@@ -1,5 +1,6 @@
 /*
-zig cc chat_server.c -o chat_server.exe -lws2_32 -lcrypt32 "-Wl,--subsystem,windows" -O -s
+zig cc chat_server.c -o chat_server.exe -lws2_32 -lcrypt32 "-Wl,--subsystem,windows" -Oz -s
+tcc chat_server.c -o chat_server.exe -lws2_32 -lcrypt32 -ladvapi32 -mwindows
 */
 #include <stdio.h>
 #include <stdlib.h>
@@ -9,7 +10,15 @@ zig cc chat_server.c -o chat_server.exe -lws2_32 -lcrypt32 "-Wl,--subsystem,wind
 #include <windows.h>
 #include <wincrypt.h>      // SHA1 + Base64
 
-#pragma comment(lib, "crypt32.lib")
+#ifndef CRYPT_STRING_NOCRLF
+#define CRYPT_STRING_NOCRLF 0x40000000
+#endif
+
+#ifndef htonll
+#define htonll(x) (((unsigned long long)htonl((unsigned int)(x))) << 32 | htonl((unsigned int)((x) >> 32)))
+#endif
+
+//#pragma comment(lib, "crypt32.lib")
 
 #define PORT 8080
 #define MSG_PATH "D:\\zig\\log\\messages.txt"
