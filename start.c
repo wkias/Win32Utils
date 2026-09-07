@@ -4,9 +4,6 @@
 #define _UNICODE
 #include <windows.h>
 
-// -------------------------------------------------------------------
-// 精简版 TCC 补丁 (仅保留纯 Unicode 必需声明)
-// -------------------------------------------------------------------
 #ifndef OFN_HIDEREADONLY
 #define OFN_HIDEREADONLY     0x00000004
 #define OFN_PATHMUSTEXIST    0x00000800
@@ -18,7 +15,9 @@ typedef UINT_PTR (WINAPI *LPOFNHOOKPROC)(HWND, UINT, WPARAM, LPARAM);
 typedef struct tagOFNW {
     DWORD lStructSize; HWND hwndOwner; HINSTANCE hInstance; LPCWSTR lpstrFilter;
     LPWSTR lpstrCustomFilter; DWORD nMaxCustFilter, nFilterIndex; LPWSTR lpstrFile;
-    DWORD nMaxFile, lpstrFileTitle; DWORD nMaxFileTitle; LPCWSTR lpstrInitialDir, lpstrTitle;
+    DWORD nMaxFile;
+    LPWSTR lpstrFileTitle; // 【修正点】由 DWORD 改为 LPWSTR
+    DWORD nMaxFileTitle; LPCWSTR lpstrInitialDir, lpstrTitle;
     DWORD Flags; WORD nFileOffset, nFileExtension; LPCWSTR lpstrDefExt; LPARAM lCustData;
     LPOFNHOOKPROC lpfnHook; LPCWSTR lpTemplateName; void *pvReserved; DWORD dwReserved, FlagsEx;
 } OPENFILENAMEW;

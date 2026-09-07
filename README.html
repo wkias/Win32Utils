@@ -1,0 +1,550 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>Windows C 语言系统实用工具集 - 综合帮助文档</title>
+<style>
+  @page {
+    size: A4;
+    margin: 15mm 12mm;
+    background-color: #f8fafc;
+    @bottom-right {
+      content: "页码：" counter(page) " / " counter(pages);
+      font-size: 8pt;
+      color: #64748b;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    }
+    @bottom-left {
+      content: "Windows C 语言系统实用工具集 — 综合技术手册";
+      font-size: 8pt;
+      color: #64748b;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    }
+  }
+
+  *, *::before, *::after {
+    box-sizing: border-box;
+  }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    font-size: 9.5pt;
+    line-height: 1.5;
+    color: #0f172a;
+    background-color: #f8fafc;
+    margin: 0;
+    padding: 0;
+  }
+
+  /* Document Header Banner */
+  .doc-header {
+    background-color: #0f172a;
+    color: #ffffff;
+    padding: 22px 24px;
+    border-radius: 10px;
+    margin-bottom: 20px;
+  }
+  .doc-title {
+    font-size: 18pt;
+    font-weight: 700;
+    margin: 0 0 6px 0;
+    color: #38bdf8;
+    letter-spacing: -0.5px;
+  }
+  .doc-subtitle {
+    font-size: 10.5pt;
+    color: #94a3b8;
+    margin: 0 0 16px 0;
+    line-height: 1.4;
+  }
+  .meta-grid {
+    display: table;
+    width: 100%;
+    border-top: 1px solid #334155;
+    padding-top: 12px;
+  }
+  .meta-cell {
+    display: table-cell;
+    width: 25%;
+    font-size: 8.5pt;
+    color: #cbd5e1;
+  }
+  .meta-label {
+    color: #64748b;
+    font-size: 7.5pt;
+    text-transform: uppercase;
+    display: block;
+    margin-bottom: 2px;
+  }
+
+  /* Section Headings */
+  h1 {
+    font-size: 14pt;
+    font-weight: 700;
+    color: #0f172a;
+    border-bottom: 2px solid #2563eb;
+    padding-bottom: 5px;
+    margin-top: 22px;
+    margin-bottom: 12px;
+    page-break-after: avoid;
+  }
+
+  h2 {
+    font-size: 11.5pt;
+    font-weight: 600;
+    color: #1e3a8a;
+    margin-top: 16px;
+    margin-bottom: 8px;
+    padding-left: 8px;
+    border-left: 3px solid #2563eb;
+    page-break-after: avoid;
+  }
+
+  h3 {
+    font-size: 10pt;
+    font-weight: 600;
+    color: #334155;
+    margin-top: 12px;
+    margin-bottom: 6px;
+    page-break-after: avoid;
+  }
+
+  p {
+    margin-top: 0;
+    margin-bottom: 8px;
+    text-align: justify;
+  }
+
+  /* Matrix Table */
+  table.matrix-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 18px;
+    font-size: 8.5pt;
+    background: #ffffff;
+    border-radius: 6px;
+    overflow: hidden;
+    border: 1px solid #e2e8f0;
+  }
+  table.matrix-table th {
+    background-color: #1e293b;
+    color: #f8fafc;
+    text-align: left;
+    padding: 8px 10px;
+    font-weight: 600;
+  }
+  table.matrix-table td {
+    padding: 7px 10px;
+    border-bottom: 1px solid #e2e8f0;
+    color: #334155;
+    vertical-align: middle;
+  }
+  table.matrix-table tr:nth-child(even) {
+    background-color: #f1f5f9;
+  }
+
+  /* Feature Cards / Callouts */
+  .card {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 12px 16px;
+    margin-bottom: 14px;
+    page-break-inside: avoid;
+  }
+  .card-title {
+    font-weight: 700;
+    font-size: 10.5pt;
+    color: #0f172a;
+    margin-bottom: 6px;
+    display: block;
+  }
+
+  .badge {
+    display: inline-block;
+    padding: 2px 7px;
+    font-size: 7.5pt;
+    font-weight: 600;
+    border-radius: 4px;
+    background-color: #e0f2fe;
+    color: #0369a1;
+    margin-right: 4px;
+  }
+  .badge-cmd {
+    background-color: #fef3c7;
+    color: #92400e;
+  }
+  .badge-gui {
+    background-color: #dcfce7;
+    color: #166534;
+  }
+  .badge-svc {
+    background-color: #f3e8ff;
+    color: #6b21a8;
+  }
+
+  /* Code & Command Blocks */
+  .code-block {
+    background-color: #0f172a;
+    color: #f1f5f9;
+    font-family: "Cascadia Code", "Consolas", "Courier New", monospace;
+    font-size: 8.5pt;
+    padding: 10px 12px;
+    border-radius: 6px;
+    margin-bottom: 10px;
+    white-space: pre-wrap;
+    word-break: break-all;
+    line-height: 1.4;
+    page-break-inside: avoid;
+  }
+
+  .cmd-block {
+    background-color: #1e293b;
+    color: #38bdf8;
+    font-family: "Cascadia Code", "Consolas", "Courier New", monospace;
+    font-size: 8.5pt;
+    padding: 8px 12px;
+    border-left: 4px solid #38bdf8;
+    border-radius: 0 6px 6px 0;
+    margin-bottom: 10px;
+    white-space: pre-wrap;
+    word-break: break-all;
+    page-break-inside: avoid;
+  }
+
+  /* Technical Spec Table */
+  table.spec-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 10px;
+    font-size: 8.5pt;
+  }
+  table.spec-table td {
+    padding: 4px 6px;
+    vertical-align: top;
+  }
+  table.spec-table td.label {
+    width: 18%;
+    font-weight: 600;
+    color: #475569;
+    background-color: #f1f5f9;
+    border-radius: 4px;
+  }
+  table.spec-table td.val {
+    width: 82%;
+    color: #0f172a;
+    font-family: "Cascadia Code", "Consolas", monospace;
+  }
+
+  /* Lists */
+  ul, ol {
+    margin-top: 0;
+    margin-bottom: 8px;
+    padding-left: 18px;
+  }
+  li {
+    margin-bottom: 3px;
+  }
+
+  /* Note Box */
+  .note-box {
+    background-color: #eff6ff;
+    border-left: 4px solid #2563eb;
+    padding: 8px 12px;
+    border-radius: 0 6px 6px 0;
+    margin-bottom: 10px;
+    font-size: 9pt;
+    color: #1e40af;
+    page-break-inside: avoid;
+  }
+
+  .tech-highlight {
+    color: #0284c7;
+    font-weight: 600;
+  }
+
+  /* Footer Section spacing */
+  .section-block {
+    margin-bottom: 22px;
+  }
+</style>
+</head>
+<body>
+
+  <!-- Header Banner -->
+  <div class="doc-header">
+    <div class="doc-title">Windows C 语言系统实用工具集</div>
+    <div class="doc-subtitle">综合技术参考手册与操作指南（单文件轻量级工具架构）</div>
+    <div class="meta-grid">
+      <div class="meta-cell">
+        <span class="meta-label">适配操作系统</span>
+        Windows 7 / 10 / 11 (x86/x64)
+      </div>
+      <div class="meta-cell">
+        <span class="meta-label">推荐编译工具链</span>
+        TCC (Tiny C Compiler) / Zig cc
+      </div>
+      <div class="meta-cell">
+        <span class="meta-label">架构特点</span>
+        纯 Win32 API / 零第三方库依赖
+      </div>
+      <div class="meta-cell">
+        <span class="meta-label">文档版本</span>
+        v1.0 (2026 年 release)
+      </div>
+    </div>
+  </div>
+
+  <!-- Executive Summary Table -->
+  <div class="section-block">
+    <h1>一、工具集概览与快速参考</h1>
+    <p>本手册涵盖 5 款使用 C 语言编写的高效 Win32 应用程序。所有工具均遵循<strong>零外部 DLL 运行时依赖</strong>的设计原则，直接与 Windows 原生内核及系统 API 对接，体积小巧、编译迅速，非常适合嵌入式环境、运维监控或个人日常使用。</p>
+
+    <table class="matrix-table">
+      <thead>
+        <tr>
+          <th style="width: 18%;">程序名称</th>
+          <th style="width: 15%;">源码文件</th>
+          <th style="width: 12%;">运行形态</th>
+          <th style="width: 25%;">主要核心 API / 模块</th>
+          <th style="width: 30%;">默认配置 / 日志路径</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>嵌入式 WebSocket 聊天服务端</strong></td>
+          <td><code>chat_server.c</code></td>
+          <td><span class="badge badge-svc">后台/网络</span></td>
+          <td>Winsock2, Wincrypt (SHA1/Base64), Win32 Heap</td>
+          <td><code>D:\zig\log\messages.txt</code></td>
+        </tr>
+        <tr>
+          <td><strong>DDC/CI 显示器控亮托盘</strong></td>
+          <td><code>DDCBrightness.c</code></td>
+          <td><span class="badge badge-gui">托盘 GUI</span></td>
+          <td>dxva2 (Physical Monitor), Shell Tray, DWM Dark Mode</td>
+          <td>系统注册表自启项 <code>HKCU\...\Run</code></td>
+        </tr>
+        <tr>
+          <td><strong>网关连通性静默监控</strong></td>
+          <td><code>ping_gateway.c</code></td>
+          <td><span class="badge badge-svc">静默后台</span></td>
+          <td>IP Helper API (GetAdaptersInfo), ICMP API</td>
+          <td><code>log\ping.log</code></td>
+        </tr>
+        <tr>
+          <td><strong>进程感知电源计划切换器</strong></td>
+          <td><code>power_monitor.c</code></td>
+          <td><span class="badge badge-svc">静默后台</span></td>
+          <td>Toolhelp32 (Process Snapshot), powrprof.dll</td>
+          <td>配置: <code>D:\zig\config\power_monitor.txt</code><br>日志: <code>D:\zig\log\power_monitor.log</code></td>
+        </tr>
+        <tr>
+          <td><strong>开机自启项管理工具</strong></td>
+          <td><code>start.c</code></td>
+          <td><span class="badge badge-gui">桌面 GUI</span></td>
+          <td>Win32 Standard Controls, Comdlg32, WinReg, DPI Aware</td>
+          <td>注册表 <code>HKCU\...\Run</code></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Detailed Guide 1 -->
+  <div class="section-block">
+    <h1>二、<code>chat_server.c</code> — 嵌入式 WebSocket & HTTP 实时聊天服务器</h1>
+
+    <h2>1. 程序概述</h2>
+    <p><code>chat_server.c</code> 是一个单文件构成的轻量级 Win32 网络服务端程序。它同时兼有 <strong>HTTP 静态 Web 服务器</strong>、<strong>REST API 历史记录接口</strong> 以及 <strong>WebSocket 全双工实时广播服务器</strong> 三大功能。前端界面已完全内置于源码的 <code>HTML_PAGE</code> 字符串中，无需部署外部静态资源。</p>
+
+    <h2>2. 编译指南</h2>
+    <p>该程序依赖 Windows 网络库 <code>ws2_32</code>、加密库 <code>crypt32</code> 以及 Win32 用户库。支持使用 <strong>Zig cc</strong> 或 <strong>TCC</strong> 直接编译成 GUI 无控制台窗口程序：</p>
+    <div class="cmd-block"># 使用 Zig cc 编译 (推荐 -Oz 极小体积优化)
+zig cc chat_server.c -o chat_server.exe -lws2_32 -lcrypt32 -luser32 -ladvapi32 "-Wl,--subsystem,windows" -Oz -s
+
+# 使用 TCC 编译
+tcc chat_server.c -o chat_server.exe -lws2_32 -lcrypt32 -luser32 -ladvapi32 -mwindows</div>
+
+    <h2>3. 关键技术实现与设计亮点</h2>
+    <ul>
+      <li><span class="tech-highlight">零 MSVCRT 基础函数库替代：</span> 为避免不同 C 运行库的兼容性问题，源码内实现了纯 Win32 替代函数，如 <code>my_alloc</code>/<code>my_free</code> (基于 <code>HeapAlloc</code>), <code>win_strlen</code>, <code>win_memcpy</code>, <code>win_strcmp</code>, <code>win_strstr</code> 等。</li>
+      <li><span class="tech-highlight">原生 CryptoAPI 计算 WebSocket 握手：</span> 补全了 TCC 缺失的 <code>wincrypt.h</code> 函数声明，利用 <code>CryptCreateHash</code> 计算 SHA-1 并用 <code>CryptBinaryToStringA</code> 完成 Base64 编码，安全计算 <code>Sec-WebSocket-Accept</code> 响应。</li>
+      <li><span class="tech-highlight">双重临界区 (Critical Section) 线程同步：</span> 使用 <code>file_lock</code> 保护对磁盘日志文件 <code>messages.txt</code> 的并发追加，使用 <code>clients_lock</code> 保护 WebSocket 客户端链表（<code>ClientNode</code>）的动态添加、删除与广播。</li>
+      <li><span class="tech-highlight">WebSocket 完整帧解析：</span> 完全支持基础掩码解码 (Masking)、标准长度、16-bit 扩展长度（Payload == 126）及 64-bit 大包扩展长度（Payload == 127）。</li>
+    </ul>
+
+    <h2>4. 接口与通信协议规范</h2>
+    <table class="spec-table">
+      <tr><td class="label">服务端口</td><td class="val">HTTP / WebSocket 默认监听 8080 端口</td></tr>
+      <tr><td class="label">主页访问</td><td class="val">GET / 或 GET /index.html → 返回 HTML5 实时聊天界面</td></tr>
+      <tr><td class="label">历史 API</td><td class="val">GET /api/messages → 返回 UTF-8 编码的纯文本历史聊天记录</td></tr>
+      <tr><td class="label">WebSocket</td><td class="val">GET /ws → 协议升级为 WebSocket (101 Switching Protocols)</td></tr>
+      <tr><td class="label">发送格式</td><td class="val">客户端上行帧格式：[昵称]\n[消息文本]</td></tr>
+      <tr><td class="label">广播格式</td><td class="val">服务端下行广播格式：[YYYY-MM-DD HH:MM:SS] [客户端IP] [昵称]: [消息]</td></tr>
+      <tr><td class="label">数据持久化</td><td class="val">D:\zig\log\messages.txt (自动创建带 UTF-8 BOM 的文件)</td></tr>
+    </table>
+
+    <div class="note-box">
+      <strong>提示：</strong> 双击运行程序后，服务器将在后台静默监听 <code>8080</code> 端口。同局域网设备只需在浏览器输入 <code>http://&lt;服务器IP&gt;:8080</code> 即可立即参与实时聊天。
+    </div>
+  </div>
+
+  <!-- Detailed Guide 2 -->
+  <div class="section-block">
+    <h1>三、<code>DDCBrightness.c</code> — 显示器 DDC/CI 硬件亮度调节托盘工具</h1>
+
+    <h2>1. 程序概述</h2>
+    <p><code>DDCBrightness.c</code> 是一款运行在 Windows 系统托盘区（System Tray）的现代硬件亮度控制工具。它不需要依赖显卡驱动软件，而是直接通过系统 <code>dxva2.dll</code> 提供的 DDC/CI (Display Data Channel Command Interface) 协议与外接显示器的固件通信，调节显示器背光亮度。</p>
+
+    <h2>2. 编译指南</h2>
+    <div class="cmd-block"># 使用 TCC 编译 (需要链接 dxva2, gdi32, comctl32 等)
+tcc .\DDCBrightness.c -o .\DDCBrightness.exe -luser32 -lshell32 -lgdi32 -lcomctl32 -ldxva2 -ladvapi32</div>
+
+    <h2>3. 核心功能与技术特色</h2>
+    <div class="card">
+      <span class="card-title">1. DDC/CI Capabilities 硬件型号深度识别</span>
+      <p>超越 Windows 系统默认给出的泛用“通用 PnP 显示器”命名。本工具通过向显示器发送发送低阶 DDC/CI 指令（<code>CapabilitiesRequestAndCapabilitiesReply</code>），解析响应字符串中的 <code>model(...)</code> 标签，直接获取显示器的真实厂商型号名（例如 Dell U2720Q、LG 27GP850 等）。</p>
+    </div>
+
+    <div class="card">
+      <span class="card-title">2. Windows 10/11 现代化暗色风格 Flyout 悬浮窗</span>
+      <p>采用精美暗色调设计（背景 <code>#1F1F1F</code>），支持 Segoe MDL2 Assets 矢量图标（亮度图标 <code>\uE706</code>、关屏图标 <code>\uE7E8</code>）。动态加载 <code>dwmapi.dll</code> (启用 <code>DWMWA_USE_IMMERSIVE_DARK_MODE</code>) 与 <code>uxtheme.dll</code> (<code>DarkMode_Explorer</code>) 实现完美暗色主题沉浸。</p>
+    </div>
+
+    <div class="card">
+      <span class="card-title">3. 多显示器独立控制与一键关屏</span>
+      <p>自动枚举多达 8 台物理显示器（<code>EnumDisplayMonitors</code>），为每台显示器渲染独立的 Trackbar 滑块与实时数值。窗口右上角提供专属硬件熄屏按钮，利用 VCP Code <code>0xD6</code> 发送节电指令并触发系统休眠。</p>
+    </div>
+
+    <h2>4. 操作指南</h2>
+    <ul>
+      <li><strong>单击托盘图标：</strong> 在鼠标指针位置弹出一个类似 Win10 系统原生的 Flyout 亮度调节框，滑动滑块实时改变硬件背光。失焦自动隐藏。</li>
+      <li><strong>右键托盘图标：</strong> 弹出右键菜单，可勾选/取消“开机自启动”（自动写入 <code>HKCU\Software\Microsoft\Windows\CurrentVersion\Run</code>）或完全退出程序。</li>
+    </ul>
+  </div>
+
+  <!-- Detailed Guide 3 -->
+  <div class="section-block">
+    <h1>四、<code>ping_gateway.c</code> — 静默后台网关连通性监控服务</h1>
+
+    <h2>1. 程序概述</h2>
+    <p><code>ping_gateway.c</code> 是一个轻量级网络连通性诊断工具。程序启动后会立即自动剥离控制台，完全无感地在后台以固定间隔（默认 60 秒）向局域网网关发送 ICMP Echo 探测包，并把网络延迟（RTT）与断网事件写入日志，非常适合用于网络稳定性排查或长期断连统计。</p>
+
+    <h2>2. 编译指南</h2>
+    <div class="cmd-block"># 使用 Zig cc 编译
+zig cc -Oz -s ping_gateway.c -o ping_gateway.exe -liphlpapi -lws2_32 -luser32 '-Wl,--subsystem,windows'
+
+# 使用 TCC 编译
+tcc ping_gateway.c -o ping_gateway.exe -liphlpapi -lws2_32 -luser32 -mwindows</div>
+
+    <h2>3. 工作原理与设计</h2>
+    <ul>
+      <li><span class="tech-highlight">隐形后台运行：</span> 源码入口为 <code>WinMain</code> 并首句执行 <code>FreeConsole()</code>，确保即使在 CMD 中调用启动也不会阻塞或留下终端窗口。</li>
+      <li><span class="tech-highlight">智能网关自动感知：</span> 调用 IP Helper API (<code>GetAdaptersInfo</code>) 轮询本机适配器列表，自动检索非 <code>0.0.0.0</code> 的有效默认网关 IP。无需手动配置网关地址。</li>
+      <li><span class="tech-highlight">命令行目标覆盖：</span> 支持命令行参数传入指定 IP（例如：<code>ping_gateway.exe 1.1.1.1</code>），传入参数时将优先监控指定 IP。</li>
+      <li><span class="tech-highlight">原生 ICMP API 免管理员权限：</span> 使用 Win32 系统的 <code>IcmpCreateFile</code> 与 <code>IcmpSendEcho</code> 发送探测包，无需 Raw Socket 权限（普通用户权限即可运行）。</li>
+    </ul>
+
+    <h2>4. 日志格式说明</h2>
+    <p>日志文件存放在当前工作目录下的 <code>log\ping.log</code> 中：</p>
+    <div class="code-block">[*] 静默 Ping 监控启动，目标网关: 192.168.1.1
+[2026-09-08 10:15:00] Ping 192.168.1.1 - 成功 | 延迟: 1 ms
+[2026-09-08 10:16:00] Ping 192.168.1.1 - 成功 | 延迟: 2 ms
+[2026-09-08 10:17:00] Ping 192.168.1.1 - 超时或失败</div>
+  </div>
+
+  <!-- Detailed Guide 4 -->
+  <div class="section-block">
+    <h1>五、<code>power_monitor.c</code> — 进程感知的电源计划动态切换器</h1>
+
+    <h2>1. 程序概述</h2>
+    <p><code>power_monitor.c</code> 是一个自动化电源管理后台服务。它可以根据配置的目标进程名单（如游戏 <code>Cyberpunk2077.exe</code>、渲染器 <code>blender.exe</code> 或编译工具 <code>zig.exe</code>）动态调整 Windows 系统电源计划：当发现名单中的进程正在运行时，自动将系统提升至<strong>“平衡模式”</strong>以释放完整性能；当所有目标进程退出后，自动将系统降低至<strong>“节能模式”</strong>以降低功耗并减少发热。</p>
+
+    <h2>2. 编译指南</h2>
+    <div class="cmd-block"># 使用 TCC 编译 (可加入 -mwindows 选项隐藏控制台窗口)
+tcc power_monitor.c -o power_monitor.exe -mwindows</div>
+
+    <h2>3. 核心机制与架构设计</h2>
+    <ul>
+      <li><span class="tech-highlight">零静态依赖与 API 动态加载：</span> 程序内包含对 <code>Toolhelp32</code> 进程快照 API 和 <code>powrprof.dll</code> 中 <code>PowerSetActiveScheme</code> 函数的动态解析加载，无需在编译阶段链接额外的扩展库。</li>
+      <li><span class="tech-highlight">低资源消耗轮询：</span> 默认每 60 秒（<code>CHECK_INTERVAL_MS = 60000</code>）检查一次进程快照，CPU 与内存开销几乎为 0。</li>
+      <li><span class="tech-highlight">状态机防抖动：</span> 内部维护 <code>current_mode</code> 状态，只有当“运行状态”发生切换（节能 ↔ 平衡）时，才会真正触发电源 API 调用并记录日志，避免重复调用 API。</li>
+    </ul>
+
+    <h2>4. 配置文件与日志路径</h2>
+    <table class="spec-table">
+      <tr>
+        <td class="label">配置文件</td>
+        <td class="val">D:\zig\config\power_monitor.txt</td>
+      </tr>
+      <tr>
+        <td class="label">配置格式</td>
+        <td class="val">纯文本文件，每行写一个目标可执行文件名称（不区分大小写），例如：<br>
+        <code>chrome.exe</code><br>
+        <code>game.exe</code><br>
+        <code>ffmpeg.exe</code></td>
+      </tr>
+      <tr>
+        <td class="label">日志路径</td>
+        <td class="val">D:\zig\log\power_monitor.log (带时间戳输出模式切换轨迹)</td>
+      </tr>
+    </table>
+  </div>
+
+  <!-- Detailed Guide 5 -->
+  <div class="section-block">
+    <h1>六、<code>start.c</code> — 开机自启动注册表项可视化管理工具</h1>
+
+    <h2>1. 程序概述</h2>
+    <p><code>start.c</code> 是一款专注于 Windows 开机自自启动项配置的直观 GUI 工具。通过可视化图形界面，帮助用户安全、便捷地为任意程序配置或清除 Windows 注册表自启项（<code>HKCU\Software\Microsoft\Windows\CurrentVersion\Run</code>），并支持自定义附加命令行参数。</p>
+
+    <h2>2. 编译指南</h2>
+    <div class="cmd-block"># 使用 TCC 编译 (链接 comdlg32 文件选择对话框组件)
+tcc start.c -o start.exe -lkernel32 -luser32 -lgdi32 -ladvapi32 -lcomdlg32</div>
+
+    <h2>3. 核心特性与实现细节</h2>
+    <ul>
+      <li><span class="tech-highlight">高分屏 (DPI Awareness) 完美适配：</span> 针对 4K 等高 DPI 缩放屏幕，程序动态优先加载 User32 的 <code>SetProcessDpiAwarenessContext(-4)</code> (Per-Monitor v2)，降级兜底调用 <code>SetProcessDPIAware()</code>，确保高清晰度无模糊界面。</li>
+      <li><span class="tech-highlight">标准 Windows 控件批量构建：</span> 使用自定义的 <code>CTRL_DEF</code> 数组表单配合 <code>Microsoft YaHei UI</code> 字体，批量创建清晰统一的界面元素。</li>
+      <li><span class="tech-highlight">路径与参数智能封装：</span> 自动从选择的文件路径中提取文件名作为注册表键名，若填有启动参数，将自动封装为带转义双引号的标准命令格式：<code>"C:\path\app.exe" --arg1</code>。</li>
+      <li><span class="tech-highlight">防重校验机制：</span> 在写入自启项前，会先读取注册表，若该项已存在则弹窗提示，防止重复添加或误覆盖。</li>
+    </ul>
+
+    <h2>4. 使用步骤</h2>
+    <ol>
+      <li>点击 <strong>“浏览...”</strong> 按钮，通过文件对话框选择需要设为自启动的 <code>.exe</code> 应用程序。</li>
+      <li>（可选）在 <strong>“启动参数:”</strong> 输入框中输入程序启动时需要的参数（如 <code>--minimized</code>、<code>-server</code> 等）。</li>
+      <li>点击 <strong>“添加开机自启”</strong>：程序将向注册表写入键值并弹出结果反馈。</li>
+      <li>需要取消自启时，只需选择对应程序并点击 <strong>“删除开机自启”</strong> 即可安全清理。</li>
+    </ol>
+  </div>
+
+  <!-- Appendix -->
+  <div class="section-block">
+    <h1>七、附录：一键构建构建脚本 (Build Scripts)</h1>
+    <p>为方便一次性编译构建本实用工具集的所有程序，可将以下代码另存为 <code>build_all.bat</code> 批处理文件并运行：</p>
+
+    <div class="code-block">@echo off
+chcp 65001 >nul
+echo [1/5] 编译 chat_server.exe ...
+tcc chat_server.c -o chat_server.exe -lws2_32 -lcrypt32 -luser32 -ladvapi32 -mwindows
+
+echo [2/5] 编译 DDCBrightness.exe ...
+tcc DDCBrightness.c -o DDCBrightness.exe -luser32 -lshell32 -lgdi32 -lcomctl32 -ldxva2 -ladvapi32
+
+echo [3/5] 编译 ping_gateway.exe ...
+tcc ping_gateway.c -o ping_gateway.exe -liphlpapi -lws2_32 -luser32 -mwindows
+
+echo [4/5] 编译 power_monitor.exe ...
+tcc power_monitor.c -o power_monitor.exe -mwindows
+
+echo [5/5] 编译 start.exe ...
+tcc start.c -o start.exe -lkernel32 -luser32 -lgdi32 -ladvapi32 -lcomdlg32
+
+echo.
+echo 所有程序编译完成！
+pause</div>
+  </div>
+
+</body>
+</html>
