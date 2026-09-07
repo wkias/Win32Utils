@@ -1,25 +1,137 @@
 /*
-zig cc DDCBrightness.c -o DDCBrightness.exe -municode "-Wl,--subsystem,windows" -luser32 -lshell32 -lgdi32 -lcomctl32 -ldxva2 -ladvapi32 -Oz -s -ffunction-sections -fdata-sections "-Wl,--gc-sections"
+tcc .\DDCBrightness.c -o .\DDCBrightness.exe -luser32 -lshell32 -lgdi32 -lcomctl32 -ldxva2 -ladvapi32
 */
+#define _WIN32_WINNT 0x0600
+#define _WIN32_IE    0x0600
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <shellapi.h>
-#include <commctrl.h>
-#include <physicalmonitorenumerationapi.h>
-#include <highlevelmonitorconfigurationapi.h>
-#include <lowlevelmonitorconfigurationapi.h>
 #include <stdio.h>
 #include <string.h>
 
-#pragma comment(lib, "user32.lib")
-#pragma comment(lib, "shell32.lib")
-#pragma comment(lib, "gdi32.lib")
-#pragma comment(lib, "comctl32.lib")
-#pragma comment(lib, "dxva2.lib")
-#pragma comment(lib, "advapi32.lib")
+// -------------------------------------------------------------------
+// 补充 TCC 缺失的 NOTIFYICONDATAW 结构体、API 及 CRT 替代
+// -------------------------------------------------------------------
 
-// 启用 Windows 原生控件视觉样式 (ComCtl32 v6)
-#pragma comment(linker, "\"/manifestdependency:type='win32' name='Microsoft.Windows.Common-Controls' version='6.0.0.0' processorArchitecture='*' publicKeyToken='6595b64144ccf1df' language='*'\"")
+// 1. TCC 缺失的 Tray Icon (NOTIFYICONDATAW) 结构体与常量定义
+#ifndef NIF_ICON
+#define NIF_MESSAGE 0x00000001
+#define NIF_ICON    0x00000002
+#define NIF_TIP     0x00000004
+#define NIM_ADD     0x00000000
+#define NIM_MODIFY  0x00000001
+#define NIM_DELETE  0x00000002
+#endif
+
+typedef struct _NOTIFYICONDATAW {
+    DWORD cbSize;
+    HWND hWnd;
+    UINT uID;
+    UINT uFlags;
+    UINT uCallbackMessage;
+    HICON hIcon;
+    WCHAR szTip[128];
+    DWORD dwState;
+    DWORD dwStateMask;
+    WCHAR szInfo[256];
+    union {
+        UINT uTimeout;
+        UINT uVersion;
+    };
+    WCHAR szInfoTitle[64];
+    DWORD dwInfoFlags;
+    GUID guidItem;
+    HICON hBalloonIcon;
+} NOTIFYICONDATAW, *PNOTIFYICONDATAW;
+
+BOOL WINAPI Shell_NotifyIconW(DWORD dwMessage, PNOTIFYICONDATAW lpData);
+
+// 2. TCC / CRT 兼容宏定义
+#ifndef _TRUNCATE
+#define _TRUNCATE ((size_t)-1)
+#endif
+
+#ifndef wcscpy_s
+#define wcscpy_s(dst, size, src) (lstrcpynW((dst), (src), (int)(size)), 0)
+#endif
+
+#ifndef swprintf_s
+#define swprintf_s(buf, size, fmt, ...) snwprintf((buf), (size), (fmt), ##__VA_ARGS__)
+#endif
+
+// 3. Physical Monitor API 结构体与函数声明
+typedef struct _PHYSICAL_MONITOR {
+    HANDLE hPhysicalMonitor;
+    WCHAR szPhysicalMonitorDescription[128];
+} PHYSICAL_MONITOR, *LPPHYSICAL_MONITOR;
+
+BOOL WINAPI GetNumberOfPhysicalMonitorsFromHMONITOR(HMONITOR hMonitor, LPDWORD pdwNumberOfPhysicalMonitors);
+BOOL WINAPI GetPhysicalMonitorsFromHMONITOR(HMONITOR hMonitor, DWORD dwPhysicalMonitorArraySize, LPPHYSICAL_MONITOR pPhysicalMonitorArray);
+BOOL WINAPI DestroyPhysicalMonitor(HANDLE hPhysicalMonitor);
+BOOL WINAPI GetMonitorBrightness(HANDLE hPhysicalMonitor, LPDWORD pdwMinimumBrightness, LPDWORD pdwCurrentBrightness, LPDWORD pdwMaximumBrightness);
+BOOL WINAPI SetMonitorBrightness(HANDLE hPhysicalMonitor, DWORD dwNewBrightness);
+BOOL WINAPI SetVCPFeature(HANDLE hPhysicalMonitor, BYTE bVCPCode, DWORD dwNewValue);
+
+// 4. Trackbar (滑块) 样式标志位
+#ifndef TBS_HORZ
+#define TBS_HORZ            0x0000
+#define TBS_AUTOTICKS       0x0001
+#define TBS_VERT            0x0002
+#define TBS_TOP             0x0004
+#define TBS_BOTTOM          0x0008
+#define TBS_LEFT            0x0004
+#define TBS_RIGHT           0x0008
+#define TBS_BOTH            0x0020
+#define TBS_NOTICKS         0x0010
+#define TBS_TOOLTIPS        0x0100
+#endif
+// Trackbar (滑块) 控制消息定义
+#ifndef TBM_GETPOS
+#define TBM_GETPOS      (WM_USER + 0)
+#define TBM_GETRANGEMIN (WM_USER + 1)
+#define TBM_GETRANGEMAX (WM_USER + 2)
+#define TBM_SETPOS      (WM_USER + 5)
+#define TBM_SETRANGE    (WM_USER + 6)
+#define TBM_SETRANGEMIN (WM_USER + 7)
+#define TBM_SETRANGEMAX (WM_USER + 8)
+#define TBM_SETPAGESIZE (WM_USER + 21)
+#define TBM_SETLINESIZE (WM_USER + 23)
+#endif
+
+// 5. Low-Level Monitor API 声明
+BOOL WINAPI GetCapabilitiesStringLength(HANDLE hPhysicalMonitor, LPDWORD pdwCapabilitiesStringLengthInCharacters);
+BOOL WINAPI CapabilitiesRequestAndCapabilitiesReply(HANDLE hPhysicalMonitor, LPSTR pszASCIICapabilitiesString, DWORD dwCapabilitiesStringLengthInCharacters);
+
+// 6. 纯 Win32 堆内存替代 malloc / free
+#ifndef malloc
+#define malloc(size) HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, (size))
+#define free(ptr)    HeapFree(GetProcessHeap(), 0, (ptr))
+#endif
+
+// 7. 纯 Win32 替代 wcsncpy_s
+static inline int wcsncpy_s_impl(WCHAR *dst, size_t dst_size, const WCHAR *src, size_t count) {
+    if (!dst || dst_size == 0) return 1;
+    int max_len = (int)(count + 1 < dst_size ? count + 1 : dst_size);
+    lstrcpynW(dst, src ? src : L"", max_len);
+    return 0;
+}
+#define wcsncpy_s(dst, size, src, count) wcsncpy_s_impl(dst, size, src, count)
+
+// 8. Common Controls Trackbar Class 宏定义
+#ifndef TRACKBAR_CLASSW
+#define TRACKBAR_CLASSW L"msctls_trackbar32"
+#endif
+// Common Controls 初始化结构体与函数补丁
+#ifndef ICC_BAR_CLASSES
+#define ICC_BAR_CLASSES 0x00000004
+#endif
+
+typedef struct tagINITCOMMONCONTROLSEX {
+    DWORD dwSize;
+    DWORD dwICC;
+} INITCOMMONCONTROLSEX, *LPINITCOMMONCONTROLSEX;
+
+BOOL WINAPI InitCommonControlsEx(const INITCOMMONCONTROLSEX *lpicce);
 
 #define WM_TRAYICON (WM_USER + 1)
 #define IDI_TRAYICON 101

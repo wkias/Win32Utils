@@ -1,6 +1,6 @@
 /* =============================================================
-# 监控进程修改电源计划
-# 编译方式: zig cc -Oz power_monitor.c -o power_monitor.exe -lpowrprof "-Wl,/subsystem:windows" "-Wl,-s"
+# 监控进程修改电源计划 (TCC 完全零依赖适配版)
+# 编译方式: tcc power_monitor.c -o power_monitor.exe
 # =============================================================*/
 
 #include <stdio.h>
@@ -9,20 +9,39 @@
 #include <time.h>
 #include <stdarg.h>
 #include <windows.h>
-#include <tlhelp32.h>
-#include <powrprof.h>
 
-#pragma comment(lib, "powrprof.lib")
-
-#define CONFIG_FILE "config\\power_monitor.txt"
-#define LOG_FILE    "log\\power_monitor.log"
+#define CONFIG_FILE "D:\\zig\\config\\power_monitor.txt"
+#define LOG_FILE    "D:\\zig\\log\\power_monitor.log"
 #define MAX_TARGETS 128
 #define MAX_NAME_LEN 256
 #define CHECK_INTERVAL_MS 60000
 
+// --- 手动补全 tlhelp32.h 定义 ---
+#define TH32CS_SNAPPROCESS 0x00000002
+
+typedef struct tagPROCESSENTRY32 {
+    DWORD     dwSize;
+    DWORD     cntUsage;
+    DWORD     th32ProcessID;
+    ULONG_PTR th32DefaultHeapID;
+    DWORD     th32ModuleID;
+    DWORD     cntThreads;
+    DWORD     th32ParentProcessID;
+    LONG      pcPriClassBase;
+    DWORD     dwFlags;
+    CHAR      szExeFile[MAX_PATH];
+} PROCESSENTRY32;
+
+typedef HANDLE (WINAPI *PFN_CreateToolhelp32Snapshot)(DWORD dwFlags, DWORD th32ProcessID);
+typedef BOOL   (WINAPI *PFN_Process32First)(HANDLE hSnapshot, PROCESSENTRY32 *lppe);
+typedef BOOL   (WINAPI *PFN_Process32Next)(HANDLE hSnapshot, PROCESSENTRY32 *lppe);
+
+// --- powrprof 函数动态调用定义 ---
+typedef DWORD  (WINAPI *PFN_PowerSetActiveScheme)(HKEY UserRootPowerKey, const GUID *SchemeGuid);
+
 // Windows 内置电源方案 GUID
 static const GUID GUID_BALANCED = { 0x381b4222, 0xf694, 0x41f0, { 0x96, 0x85, 0xff, 0x5b, 0xb2, 0x60, 0xdf, 0x2e } };
-static const GUID GUID_POWER_SAVER = { 0xa1841308, 0x3541, 0x4fab, { 0xbc, 0x81, 0xf7, 0x15, 0x56, 0xf2, 0x0b, 0x4a } };
+static const GUID GUID_POWER_SAVER = { 0xa1841308, 0x3541, 0x4fab, { 0xbc, 0x81, 0xf7, 0x15, 0x56, 0xF2, 0x0b, 0x4a } };
 
 // 带时间戳的日志输出到文件
 void write_log(const char *format, ...) {
@@ -72,13 +91,25 @@ int load_config(char targets[MAX_TARGETS][MAX_NAME_LEN]) {
 int is_any_target_running(char targets[MAX_TARGETS][MAX_NAME_LEN], int target_count) {
     if (target_count <= 0) return 0;
 
-    HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    // 动态获取 kernel32.dll 中的进程快照 API
+    HMODULE hKernel32 = GetModuleHandleA("kernel32.dll");
+    if (!hKernel32) return 0;
+
+    PFN_CreateToolhelp32Snapshot pfnCreateSnapshot = (PFN_CreateToolhelp32Snapshot)GetProcAddress(hKernel32, "CreateToolhelp32Snapshot");
+    PFN_Process32First pfnProcess32First = (PFN_Process32First)GetProcAddress(hKernel32, "Process32First");
+    PFN_Process32Next pfnProcess32Next = (PFN_Process32Next)GetProcAddress(hKernel32, "Process32Next");
+
+    if (!pfnCreateSnapshot || !pfnProcess32First || !pfnProcess32Next) {
+        return 0;
+    }
+
+    HANDLE snapshot = pfnCreateSnapshot(TH32CS_SNAPPROCESS, 0);
     if (snapshot == INVALID_HANDLE_VALUE) return 0;
 
     PROCESSENTRY32 process_entry;
     process_entry.dwSize = sizeof(PROCESSENTRY32);
 
-    if (!Process32First(snapshot, &process_entry)) {
+    if (!pfnProcess32First(snapshot, &process_entry)) {
         CloseHandle(snapshot);
         return 0;
     }
@@ -91,7 +122,7 @@ int is_any_target_running(char targets[MAX_TARGETS][MAX_NAME_LEN], int target_co
                 break;
             }
         }
-    } while (!found && Process32Next(snapshot, &process_entry));
+    } while (!found && pfnProcess32Next(snapshot, &process_entry));
 
     CloseHandle(snapshot);
     return found;
@@ -99,17 +130,31 @@ int is_any_target_running(char targets[MAX_TARGETS][MAX_NAME_LEN], int target_co
 
 void set_power_mode(int is_balanced) {
     const GUID *target_guid = is_balanced ? &GUID_BALANCED : &GUID_POWER_SAVER;
-    DWORD result = PowerSetActiveScheme(NULL, target_guid);
     
-    if (result == ERROR_SUCCESS) {
-        write_log("【状态切换】系统电源模式已设置为: %s", 
-                  is_balanced ? "平衡模式 (Balanced)" : "节能模式 (Power Saver)");
-    } else {
-        write_log("【错误】电源模式切换失败，错误码: %lu", result);
+    HMODULE hPowrProf = LoadLibraryA("powrprof.dll");
+    if (!hPowrProf) {
+        write_log("【错误】无法加载 powrprof.dll");
+        return;
     }
+
+    PFN_PowerSetActiveScheme pfnPowerSetActiveScheme = 
+        (PFN_PowerSetActiveScheme)GetProcAddress(hPowrProf, "PowerSetActiveScheme");
+
+    if (pfnPowerSetActiveScheme) {
+        DWORD result = pfnPowerSetActiveScheme(NULL, target_guid);
+        if (result == ERROR_SUCCESS) {
+            write_log("【状态切换】系统电源模式已设置为: %s", 
+                      is_balanced ? "平衡模式 (Balanced)" : "节能模式 (Power Saver)");
+        } else {
+            write_log("【错误】电源模式切换失败，错误码: %lu", result);
+        }
+    } else {
+        write_log("【错误】无法在 powrprof.dll 中找到 PowerSetActiveScheme 函数");
+    }
+
+    FreeLibrary(hPowrProf);
 }
 
-// GUI程序的标准入口函数 WinMain
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow) {
     char targets[MAX_TARGETS][MAX_NAME_LEN];
     int current_mode = -1; // -1: 初始未知, 1: 平衡, 0: 节能
@@ -117,11 +162,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     write_log("电源监控后台程序已启动，且已隐藏窗口。");
 
     while (1) {
-        // 每次循环重新读取配置
         int target_count = load_config(targets);
         int running = is_any_target_running(targets, target_count);
 
-        // 仅在状态改变时切换模式并记录日志
         if (running != current_mode) {
             current_mode = running;
             set_power_mode(current_mode);

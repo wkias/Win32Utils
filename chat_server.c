@@ -1,14 +1,41 @@
 /*
-zig cc chat_server.c -o chat_server.exe -lws2_32 -lcrypt32 "-Wl,--subsystem,windows" -Oz -s
-tcc chat_server.c -o chat_server.exe -lws2_32 -lcrypt32 -ladvapi32 -mwindows
+zig cc chat_server.c -o chat_server.exe -lws2_32 -lcrypt32 -luser32 -ladvapi32 "-Wl,--subsystem,windows" -Oz -s
+tcc chat_server.c -o chat_server.exe -lws2_32 -lcrypt32 -luser32 -ladvapi32 -mwindows
 */
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
+
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <windows.h>
-#include <wincrypt.h>      // SHA1 + Base64
+#include <windows.h>
+
+// -------------------------------------------------------------------
+// 补充 TCC 缺失的 wincrypt.h 声明 (支持 SHA1、Base64 与随机数生成)
+// -------------------------------------------------------------------
+typedef ULONG_PTR HCRYPTPROV;
+typedef ULONG_PTR HCRYPTHASH;
+typedef ULONG_PTR HCRYPTKEY;
+typedef unsigned int ALG_ID;
+
+#define PROV_RSA_FULL           1
+#define CRYPT_VERIFYCONTEXT     0xF0000000
+
+#define ALG_CLASS_HASH          (4 << 13)
+#define ALG_TYPE_ANY            (0)
+#define ALG_SID_SHA1            4
+#define CALG_SHA1               (ALG_CLASS_HASH | ALG_TYPE_ANY | ALG_SID_SHA1)
+
+#define HP_HASHVAL              0x0002
+#define HP_HASHSIZE             0x0004
+#define CRYPT_STRING_BASE64     0x00000001
+
+BOOL WINAPI CryptAcquireContextA(HCRYPTPROV *phProv, LPCSTR pszContainer, LPCSTR pszProvider, DWORD dwProvType, DWORD dwFlags);
+BOOL WINAPI CryptReleaseContext(HCRYPTPROV hProv, DWORD dwFlags);
+BOOL WINAPI CryptCreateHash(HCRYPTPROV hProv, ALG_ID Algid, HCRYPTKEY hKey, DWORD dwFlags, HCRYPTHASH *phHash);
+BOOL WINAPI CryptHashData(HCRYPTHASH hHash, const BYTE *pbData, DWORD dwDataLen, DWORD dwFlags);
+BOOL WINAPI CryptGetHashParam(HCRYPTHASH hHash, DWORD dwParam, BYTE *pbData, DWORD *pdwDataLen, DWORD dwFlags);
+BOOL WINAPI CryptDestroyHash(HCRYPTHASH hHash);
+BOOL WINAPI CryptBinaryToStringA(const BYTE *pbBinary, DWORD cbBinary, DWORD dwFlags, LPSTR pszString, DWORD *pcchString);
+// -------------------------------------------------------------------
 
 #ifndef CRYPT_STRING_NOCRLF
 #define CRYPT_STRING_NOCRLF 0x40000000
@@ -18,11 +45,78 @@ tcc chat_server.c -o chat_server.exe -lws2_32 -lcrypt32 -ladvapi32 -mwindows
 #define htonll(x) (((unsigned long long)htonl((unsigned int)(x))) << 32 | htonl((unsigned int)((x) >> 32)))
 #endif
 
-//#pragma comment(lib, "crypt32.lib")
-
 #define PORT 8080
 #define MSG_PATH "D:\\zig\\log\\messages.txt"
 #define BUFFER_SIZE 8192
+
+// ---------- 纯 Win32 替代工具函数 ----------
+#define my_alloc(sz) HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, (sz))
+#define my_free(ptr) do { if (ptr) HeapFree(GetProcessHeap(), 0, (ptr)); } while(0)
+
+static int win_strlen(const char *s) {
+    int len = 0;
+    while (s && s[len]) len++;
+    return len;
+}
+
+static void win_memcpy(void *dest, const void *src, size_t n) {
+    char *d = (char*)dest;
+    const char *s = (const char*)src;
+    while (n--) *d++ = *s++;
+}
+
+static int win_strcmp(const char *s1, const char *s2) {
+    while (*s1 && (*s1 == *s2)) {
+        s1++;
+        s2++;
+    }
+    return *(unsigned char*)s1 - *(unsigned char*)s2;
+}
+
+static char* win_strcpy(char *dest, const char *src) {
+    char *d = dest;
+    while ((*d++ = *src++) != '\0');
+    return dest;
+}
+
+static char* win_strchr(const char *s, char c) {
+    while (*s) {
+        if (*s == c) return (char*)s;
+        s++;
+    }
+    return (c == '\0') ? (char*)s : NULL;
+}
+
+static char* win_strstr(const char *haystack, const char *needle) {
+    if (!*needle) return (char*)haystack;
+    for (; *haystack; haystack++) {
+        if (*haystack == *needle) {
+            const char *h = haystack;
+            const char *n = needle;
+            while (*h && *n && (*h == *n)) {
+                h++;
+                n++;
+            }
+            if (!*n) return (char*)haystack;
+        }
+    }
+    return NULL;
+}
+
+// 替代 sscanf(buf, "%s %s %s", method, path, version)
+static void parse_request_line(const char *buf, char *method, int m_max, char *path, int p_max, char *ver, int v_max) {
+    int i = 0, j = 0;
+    while (buf[i] && buf[i] != ' ' && j < m_max - 1) method[j++] = buf[i++];
+    method[j] = '\0';
+    while (buf[i] == ' ') i++;
+    j = 0;
+    while (buf[i] && buf[i] != ' ' && j < p_max - 1) path[j++] = buf[i++];
+    path[j] = '\0';
+    while (buf[i] == ' ') i++;
+    j = 0;
+    while (buf[i] && buf[i] != ' ' && buf[i] != '\r' && buf[i] != '\n' && j < v_max - 1) ver[j++] = buf[i++];
+    ver[j] = '\0';
+}
 
 typedef struct {
     SOCKET socket;
@@ -333,46 +427,45 @@ const char *HTML_PAGE =
 "</body>\n"
 "</html>\n";
 
-// ---------- 辅助函数 ----------
+// ---------- 纯 Win32 目录与文件处理 ----------
 void ensure_dir_and_file() {
     CreateDirectoryA("D:\\zig", NULL);
     CreateDirectoryA("D:\\zig\\log", NULL);
 
-    FILE *f = fopen(MSG_PATH, "rb");
-    if (!f) {
-        f = fopen(MSG_PATH, "wb");
-        if (f) {
+    HANDLE hFile = CreateFileA(MSG_PATH, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (hFile == INVALID_HANDLE_VALUE) {
+        hFile = CreateFileA(MSG_PATH, GENERIC_WRITE, FILE_SHARE_READ, NULL, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, NULL);
+        if (hFile != INVALID_HANDLE_VALUE) {
             unsigned char bom[] = {0xEF, 0xBB, 0xBF};
-            fwrite(bom, 1, 3, f);
-            fclose(f);
+            DWORD written = 0;
+            WriteFile(hFile, bom, 3, &written, NULL);
+            CloseHandle(hFile);
         }
     } else {
-        fclose(f);
+        CloseHandle(hFile);
     }
 }
 
 // 计算 WebSocket Accept 值
 void compute_ws_accept(const char *key, char *accept) {
     char combined[256];
-    snprintf(combined, sizeof(combined), "%s258EAFA5-E914-47DA-95CA-C5AB0DC85B11", key);
+    wsprintfA(combined, "%s258EAFA5-E914-47DA-95CA-C5AB0DC85B11", key);
 
     HCRYPTPROV hProv;
     HCRYPTHASH hHash;
     BYTE hash[20];
     DWORD hashLen = 20;
-    if (CryptAcquireContext(&hProv, NULL, NULL, PROV_RSA_FULL, CRYPT_VERIFYCONTEXT)) {
+    if (CryptAcquireContextA(&hProv, NULL, NULL, PROV_RSA_FULL, CRYPT_VERIFYCONTEXT)) {
         if (CryptCreateHash(hProv, CALG_SHA1, 0, 0, &hHash)) {
-            CryptHashData(hHash, (BYTE*)combined, (DWORD)strlen(combined), 0);
+            CryptHashData(hHash, (BYTE*)combined, (DWORD)win_strlen(combined), 0);
             CryptGetHashParam(hHash, HP_HASHVAL, hash, &hashLen, 0);
             CryptDestroyHash(hHash);
         }
         CryptReleaseContext(hProv, 0);
     }
 
-    DWORD len = 0;
-    CryptBinaryToStringA(hash, 20, CRYPT_STRING_BASE64 | CRYPT_STRING_NOCRLF, NULL, &len);
+    DWORD len = 64;
     CryptBinaryToStringA(hash, 20, CRYPT_STRING_BASE64 | CRYPT_STRING_NOCRLF, accept, &len);
-    accept[len] = '\0';
 }
 
 // ---------- WebSocket 帧处理 ----------
@@ -381,7 +474,6 @@ int ws_recv_frame(SOCKET s, char **out_data, int *out_len) {
     int recv_bytes = recv(s, (char*)header, 2, 0);
     if (recv_bytes != 2) return -1;
 
-    int fin = (header[0] & 0x80) ? 1 : 0;
     int opcode = header[0] & 0x0F;
     int masked = (header[1] & 0x80) ? 1 : 0;
     int payload_len = header[1] & 0x7F;
@@ -396,12 +488,11 @@ int ws_recv_frame(SOCKET s, char **out_data, int *out_len) {
         unsigned long long ext_len;
         recv_bytes = recv(s, (char*)&ext_len, 8, 0);
         if (recv_bytes != 8) return -1;
-        // 简单处理，仅支持小长度
         payload_len = (int)ext_len;
         if (payload_len > 1024*1024) return -1;
     }
 
-    // 掩码键（客户端发送必须掩码）
+    // 掩码键
     unsigned char mask[4] = {0};
     if (masked) {
         recv_bytes = recv(s, (char*)mask, 4, 0);
@@ -409,13 +500,13 @@ int ws_recv_frame(SOCKET s, char **out_data, int *out_len) {
     }
 
     // 读取数据
-    char *data = (char*)malloc(payload_len + 1);
+    char *data = (char*)my_alloc(payload_len + 1);
     if (!data) return -1;
     int total = 0;
     while (total < payload_len) {
         int r = recv(s, data + total, payload_len - total, 0);
         if (r <= 0) {
-            free(data);
+            my_free(data);
             return -1;
         }
         total += r;
@@ -431,7 +522,7 @@ int ws_recv_frame(SOCKET s, char **out_data, int *out_len) {
 
     *out_data = data;
     *out_len = payload_len;
-    return opcode;   // 返回 opcode，0x1 为文本，0x8 为关闭
+    return opcode;
 }
 
 void ws_send_frame(SOCKET s, const char *data, int len) {
@@ -444,12 +535,12 @@ void ws_send_frame(SOCKET s, const char *data, int len) {
     } else if (len <= 65535) {
         header[1] = 126;
         unsigned short net_len = htons((unsigned short)len);
-        memcpy(header + 2, &net_len, 2);
+        win_memcpy(header + 2, &net_len, 2);
         header_len = 4;
     } else {
         header[1] = 127;
         unsigned long long net_len = htonll((unsigned long long)len);
-        memcpy(header + 2, &net_len, 8);
+        win_memcpy(header + 2, &net_len, 8);
         header_len = 10;
     }
     send(s, (char*)header, header_len, 0);
@@ -458,9 +549,9 @@ void ws_send_frame(SOCKET s, const char *data, int len) {
 
 // ---------- 客户端管理 ----------
 void add_client(SOCKET s, const char *ip) {
-    ClientNode *node = (ClientNode*)malloc(sizeof(ClientNode));
+    ClientNode *node = (ClientNode*)my_alloc(sizeof(ClientNode));
     node->socket = s;
-    strcpy(node->ip, ip);
+    win_strcpy(node->ip, ip);
     node->next = NULL;
     EnterCriticalSection(&clients_lock);
     node->next = g_clients;
@@ -475,7 +566,7 @@ void remove_client(SOCKET s) {
         if (cur->socket == s) {
             if (prev) prev->next = cur->next;
             else g_clients = cur->next;
-            free(cur);
+            my_free(cur);
             break;
         }
         prev = cur;
@@ -488,7 +579,7 @@ void broadcast_message(const char *msg) {
     EnterCriticalSection(&clients_lock);
     ClientNode *cur = g_clients;
     while (cur) {
-        ws_send_frame(cur->socket, msg, (int)strlen(msg));
+        ws_send_frame(cur->socket, msg, win_strlen(msg));
         cur = cur->next;
     }
     LeaveCriticalSection(&clients_lock);
@@ -496,22 +587,24 @@ void broadcast_message(const char *msg) {
 
 // ---------- 消息存储 + 广播 ----------
 void append_message(const char *ip, const char *sender, const char *msg) {
-    if (strlen(msg) == 0) return;
+    if (win_strlen(msg) == 0) return;
 
     SYSTEMTIME st;
     GetLocalTime(&st);
     char formatted[1024];
-    snprintf(formatted, sizeof(formatted),
+    wsprintfA(formatted,
              "[%04d-%02d-%02d %02d:%02d:%02d] [%s] [%s]: %s",
              st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond,
              ip, sender, msg);
 
-    // 写入文件（带锁）
+    // 写入文件（带锁，纯 Win32 API）
     EnterCriticalSection(&file_lock);
-    FILE *f = fopen(MSG_PATH, "ab");
-    if (f) {
-        fprintf(f, "%s\n", formatted);
-        fclose(f);
+    HANDLE hFile = CreateFileA(MSG_PATH, FILE_APPEND_DATA, FILE_SHARE_READ, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (hFile != INVALID_HANDLE_VALUE) {
+        DWORD written = 0;
+        WriteFile(hFile, formatted, win_strlen(formatted), &written, NULL);
+        WriteFile(hFile, "\r\n", 2, &written, NULL);
+        CloseHandle(hFile);
     }
     LeaveCriticalSection(&file_lock);
 
@@ -525,113 +618,106 @@ void handle_client(ClientInfo *client) {
     int bytes_received = recv(client->socket, buffer, sizeof(buffer) - 1, 0);
     if (bytes_received <= 0) {
         closesocket(client->socket);
-        free(client);
+        my_free(client);
         return;
     }
 
     // 解析请求行
     char method[16], path[256], version[16];
-    sscanf(buffer, "%15s %255s %15s", method, path, version);
+    parse_request_line(buffer, method, sizeof(method), path, sizeof(path), version, sizeof(version));
 
     // ---------- HTTP 请求 ----------
-    if (strcmp(method, "GET") == 0) {
+    if (win_strcmp(method, "GET") == 0) {
         // 主页
-        if (strcmp(path, "/") == 0 || strcmp(path, "/index.html") == 0) {
-            send(client->socket, HTML_PAGE, (int)strlen(HTML_PAGE), 0);
+        if (win_strcmp(path, "/") == 0 || win_strcmp(path, "/index.html") == 0) {
+            send(client->socket, HTML_PAGE, win_strlen(HTML_PAGE), 0);
             closesocket(client->socket);
-            free(client);
+            my_free(client);
             return;
         }
-        // 获取历史消息（保留）
-        else if (strcmp(path, "/api/messages") == 0) {
+        // 获取历史消息
+        else if (win_strcmp(path, "/api/messages") == 0) {
             EnterCriticalSection(&file_lock);
-            FILE *f = fopen(MSG_PATH, "rb");
+            HANDLE hFile = CreateFileA(MSG_PATH, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
             char *file_data = NULL;
-            long file_size = 0;
-            if (f) {
-                fseek(f, 0, SEEK_END);
-                file_size = ftell(f);
-                fseek(f, 0, SEEK_SET);
-                if (file_size > 0) {
-                    file_data = (char*)malloc(file_size + 1);
+            DWORD file_size = 0;
+            if (hFile != INVALID_HANDLE_VALUE) {
+                file_size = GetFileSize(hFile, NULL);
+                if (file_size != INVALID_FILE_SIZE && file_size > 0) {
+                    file_data = (char*)my_alloc(file_size + 1);
                     if (file_data) {
-                        fread(file_data, 1, file_size, f);
+                        DWORD bytes_read = 0;
+                        ReadFile(hFile, file_data, file_size, &bytes_read, NULL);
                         file_data[file_size] = '\0';
                     }
                 }
-                fclose(f);
+                CloseHandle(hFile);
             }
             LeaveCriticalSection(&file_lock);
 
             char header[256];
-            int header_len = snprintf(header, sizeof(header),
+            int header_len = wsprintfA(header,
                 "HTTP/1.1 200 OK\r\n"
                 "Content-Type: text/plain; charset=utf-8\r\n"
-                "Content-Length: %ld\r\n"
+                "Content-Length: %lu\r\n"
                 "Cache-Control: no-cache\r\n\r\n",
-                file_size > 0 ? file_size : 0);
+                (file_data && file_size > 0) ? file_size : 0);
+
             send(client->socket, header, header_len, 0);
             if (file_data && file_size > 0) {
                 send(client->socket, file_data, file_size, 0);
-                free(file_data);
+                my_free(file_data);
             }
             closesocket(client->socket);
-            free(client);
+            my_free(client);
             return;
         }
         // ---------- WebSocket 握手 ----------
-        else if (strcmp(path, "/ws") == 0) {
-            // 查找 Sec-WebSocket-Key
-            char *key_start = strstr(buffer, "Sec-WebSocket-Key:");
+        else if (win_strcmp(path, "/ws") == 0) {
+            char *key_start = win_strstr(buffer, "Sec-WebSocket-Key:");
             if (!key_start) {
                 closesocket(client->socket);
-                free(client);
+                my_free(client);
                 return;
             }
             key_start += 19;
             while (*key_start == ' ') key_start++;
-            char *key_end = strstr(key_start, "\r\n");
+            char *key_end = win_strstr(key_start, "\r\n");
             if (!key_end) {
                 closesocket(client->socket);
-                free(client);
+                my_free(client);
                 return;
             }
             char key[256];
             int key_len = key_end - key_start;
             if (key_len >= sizeof(key)) key_len = sizeof(key) - 1;
-            memcpy(key, key_start, key_len);
+            win_memcpy(key, key_start, key_len);
             key[key_len] = '\0';
 
-            // 计算 Accept
             char accept[64];
             compute_ws_accept(key, accept);
 
-            // 返回握手响应
             char response[512];
-            snprintf(response, sizeof(response),
+            wsprintfA(response,
                 "HTTP/1.1 101 Switching Protocols\r\n"
                 "Upgrade: websocket\r\n"
                 "Connection: Upgrade\r\n"
                 "Sec-WebSocket-Accept: %s\r\n\r\n",
                 accept);
-            send(client->socket, response, (int)strlen(response), 0);
+            send(client->socket, response, win_strlen(response), 0);
 
-            // 加入客户端列表
             add_client(client->socket, client->ip);
 
-            // 进入 WebSocket 接收循环
             while (1) {
                 char *frame_data = NULL;
                 int frame_len = 0;
                 int opcode = ws_recv_frame(client->socket, &frame_data, &frame_len);
-                if (opcode < 0) break;           // 接收错误
-                if (opcode == 0x8) {             // 关闭帧
-                    free(frame_data);
+                if (opcode < 0) break;
+                if (opcode == 0x8) {
+                    my_free(frame_data);
                     break;
-                }
-                if (opcode == 0x1) {             // 文本帧
-                    // 解析发送者和消息（格式：发送者\n消息）
-                    char *newline = strchr(frame_data, '\n');
+                } else if (opcode == 0x1) {
+                    char *newline = win_strchr(frame_data, '\n');
                     if (newline) {
                         *newline = '\0';
                         char *sender = frame_data;
@@ -640,28 +726,29 @@ void handle_client(ClientInfo *client) {
                     } else {
                         append_message(client->ip, "访客", frame_data);
                     }
-                    free(frame_data);
+                    my_free(frame_data);
+                } else {
+                    // 必须释放 Ping/Pong 等未处理帧的内存
+                    my_free(frame_data);
                 }
             }
 
-            // 清理
             remove_client(client->socket);
             closesocket(client->socket);
-            free(client);
+            my_free(client);
             return;
         }
     }
-    // ---------- POST /api/send (兼容，但页面已不使用) ----------
-    else if (strcmp(method, "POST") == 0 && strcmp(path, "/api/send") == 0) {
-        char *body = strstr(buffer, "\r\n\r\n");
+    else if (win_strcmp(method, "POST") == 0 && win_strcmp(path, "/api/send") == 0) {
+        char *body = win_strstr(buffer, "\r\n\r\n");
         if (body) {
             body += 4;
-            char *newline = strchr(body, '\n');
+            char *newline = win_strchr(body, '\n');
             if (newline) {
                 *newline = '\0';
                 char *sender = body;
                 char *msg = newline + 1;
-                char *r = strchr(sender, '\r');
+                char *r = win_strchr(sender, '\r');
                 if (r) *r = '\0';
                 append_message(client->ip, sender, msg);
             } else {
@@ -669,17 +756,16 @@ void handle_client(ClientInfo *client) {
             }
         }
         const char *resp = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 2\r\n\r\nOK";
-        send(client->socket, resp, (int)strlen(resp), 0);
+        send(client->socket, resp, win_strlen(resp), 0);
         closesocket(client->socket);
-        free(client);
+        my_free(client);
         return;
     }
 
-    // 其他请求返回 404
     const char *not_found = "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n";
-    send(client->socket, not_found, (int)strlen(not_found), 0);
+    send(client->socket, not_found, win_strlen(not_found), 0);
     closesocket(client->socket);
-    free(client);
+    my_free(client);
 }
 
 DWORD WINAPI client_thread(LPVOID arg) {
@@ -690,13 +776,12 @@ DWORD WINAPI client_thread(LPVOID arg) {
 
 // ---------- 主函数 ----------
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nShowCmd) {
-    // 设置代码页（控制台已无，但保留无害）
     SetConsoleOutputCP(65001);
     SetConsoleCP(65001);
 
     WSADATA wsaData;
     if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0) {
-        MessageBoxA(NULL, "WSAStartup 失败", "聊天室服务器错误", MB_OK | MB_ICONERROR);
+        MessageBoxA(NULL, "WSAStartup 失败", "错误", MB_OK | MB_ICONERROR);
         return 1;
     }
 
@@ -718,7 +803,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
     if (bind(server_socket, (struct sockaddr*)&server_addr, sizeof(server_addr)) == SOCKET_ERROR) {
         char buf[128];
-        snprintf(buf, sizeof(buf), "绑定端口 %d 失败", PORT);
+        wsprintfA(buf, "绑定端口 %d 失败", PORT);
         MessageBoxA(NULL, buf, "错误", MB_OK | MB_ICONERROR);
         closesocket(server_socket);
         WSACleanup();
@@ -732,34 +817,30 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         return 1;
     }
 
-    // 启动成功，可以写入日志或记录事件（可选）
-    // 这里我们选择用 OutputDebugString 输出到调试器
     char msg[256];
-    snprintf(msg, sizeof(msg), "聊天室服务器已启动，端口 %d", PORT);
+    wsprintfA(msg, "聊天室服务器已启动，端口 %d\n", PORT);
     OutputDebugStringA(msg);
 
-    // 主循环
     while (1) {
         struct sockaddr_in client_addr;
         int addr_len = sizeof(client_addr);
         SOCKET client_socket = accept(server_socket, (struct sockaddr*)&client_addr, &addr_len);
 
         if (client_socket != INVALID_SOCKET) {
-            ClientInfo *client = (ClientInfo*)malloc(sizeof(ClientInfo));
+            ClientInfo *client = (ClientInfo*)my_alloc(sizeof(ClientInfo));
             client->socket = client_socket;
-            strcpy(client->ip, inet_ntoa(client_addr.sin_addr));
+            win_strcpy(client->ip, inet_ntoa(client_addr.sin_addr));
 
             HANDLE thread = CreateThread(NULL, 0, client_thread, (LPVOID)client, 0, NULL);
             if (thread) {
                 CloseHandle(thread);
             } else {
                 closesocket(client_socket);
-                free(client);
+                my_free(client);
             }
         }
     }
 
-    // 清理（实际上不会执行到，因为循环无限）
     DeleteCriticalSection(&file_lock);
     DeleteCriticalSection(&clients_lock);
     closesocket(server_socket);
